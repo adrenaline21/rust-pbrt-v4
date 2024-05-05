@@ -1,4 +1,11 @@
-use std::{cell::RefCell, fs::File, iter::Peekable, mem::replace, ptr::null, str::Chars};
+use std::{
+    cell::RefCell,
+    fs::File,
+    iter::Peekable,
+    mem::replace,
+    ptr::null,
+    str::{CharIndices, Chars},
+};
 
 use dashmap::mapref::one::Ref;
 
@@ -82,11 +89,14 @@ pub trait ParserTarget {
 }
 
 #[derive(Default)]
-struct Token {
+struct Token<'a> {
     loc: FileLoc,
-    token: String,
-    // token: &'a str,
+    token: &'a [u8],
 }
+
+// impl<'a> Token<'a> {
+//     pub fn new(token:&str, loc:FileLoc)
+// }
 
 const TOKEN_OPTIONAL: i32 = 0;
 const TOKEN_REQUIRED: i32 = 1;
@@ -99,7 +109,7 @@ fn parse(target: &mut dyn ParserTarget, t: Tokenizer) {
 
     // let mut unget_token = Some(Token::default());
 
-    fn next_token(file_stack: &mut Vec<Tokenizer>, flags: i32) -> Option<Token> {
+    fn next_token<'a>(file_stack: &mut Vec<Tokenizer<'a>>, flags: i32) -> Option<Token<'a>> {
         // if unget_token.is_some() {
         //     return replace(&mut unget_token, None);
         // }
@@ -119,7 +129,7 @@ fn parse(target: &mut dyn ParserTarget, t: Tokenizer) {
                 file_stack.pop();
                 return next_token(file_stack, flags);
             }
-            Some(t) if t.token.starts_with("#") => next_token(file_stack, flags),
+            // Some(t) if t.token.starts_with("#") => next_token(file_stack, flags),
             _ => tok,
         }
     }
@@ -128,6 +138,14 @@ fn parse(target: &mut dyn ParserTarget, t: Tokenizer) {
         let tok = next_token(&mut file_stack, TOKEN_OPTIONAL);
         if tok.is_none() {
             break;
+        }
+        let token = std::str::from_utf8(tok.unwrap().token).unwrap();
+        // println!("Token: {}", token);
+        match token {
+            "AttributeBegin" => {
+                println!("YYY!")
+            }
+            _ => {}
         }
     }
 }
@@ -140,7 +158,7 @@ pub fn parse_files(target: &mut dyn ParserTarget, filenames: Vec<String>) -> Res
     } else {
         for f in &filenames {
             let contents = read_file_contents(f);
-            let t = Tokenizer::new(f, &contents, tok_error);
+            let t = Tokenizer::new(f, contents.as_bytes(), tok_error);
             parse(target, t);
         }
     }
@@ -154,23 +172,25 @@ pub fn parse_files(target: &mut dyn ParserTarget, filenames: Vec<String>) -> Res
 // }
 
 struct Tokenizer<'a> {
-    contents: &'a String,
-    pos: Chars<'a>,
+    contents: &'a [u8],
+    // pos: Peekable<CharIndices<'a>>,
+    pos: usize,
+    end: usize,
     loc: FileLoc,
     error_call_back: ErrorCallBack,
 }
 
 type ErrorCallBack = fn(&'static str, &FileLoc);
 
-const EOF: i32 = -1;
-
 impl<'a> Tokenizer<'a> {
-    pub fn new(filename: &String, contents: &'a String, error_call_back: ErrorCallBack) -> Self {
+    pub fn new(filename: &String, contents: &'a [u8], error_call_back: ErrorCallBack) -> Self {
         Self {
             contents: contents,
             loc: FileLoc::new(String::from(filename)),
             error_call_back,
-            pos: contents.chars(),
+            // pos: contents.char_indices().peekable(),
+            pos: 0,
+            end: contents.len(),
         }
     }
 
@@ -183,14 +203,84 @@ impl<'a> Tokenizer<'a> {
     //     }
     // }
 
-    pub fn next(&mut self) -> Option<Token> {
+    pub fn next(&mut self) -> Option<Token<'a>> {
         loop {
-            let mut start_loc = self.loc.clone();
+            let token_start = self.pos;
+            let start_loc = self.loc.clone();
+
             let ch = self.get_char();
-            match ch {
-                None => return None,
+            if ch.is_none() {
+                return None;
+            }
+            match ch.unwrap() {
+                ' ' | '\n' | '\t' | '\r' => {}
+                '"' => {
+                    let mut have_escaped = false;
+                    loop {
+                        let mut ch = self.get_char();
+                        match ch {
+                            Some('"') => break,
+                            None => {
+                                (self.error_call_back)("premature EOF", &start_loc);
+                                return None;
+                            }
+                            Some('\n') => {
+                                (self.error_call_back)("unterminated string", &start_loc);
+                                return None;
+                            }
+                            Some('\\') => {
+                                have_escaped = true;
+                                ch = self.get_char();
+                                if ch.is_none() {
+                                    (self.error_call_back)("premature EOF", &start_loc);
+                                    return None;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !have_escaped {
+                        return Some(Token {
+                            loc: start_loc,
+                            token: &self.contents[token_start..self.pos],
+                        });
+                    } else {
+                        todo!()
+                    }
+                }
+                '[' | ']' => {
+                    return Some(Token {
+                        loc: start_loc,
+                        token: &self.contents[token_start..token_start + 1],
+                    })
+                }
+                '#' => loop {
+                    let ch = self.get_char();
+                    match ch {
+                        None => break,
+                        Some('\n' | '\r') => {
+                            self.unget_char();
+                            break;
+                        }
+                        _ => {}
+                    }
+                },
                 _ => {
-                    print!("{}", ch.unwrap());
+                    loop {
+                        let ch = self.get_char();
+                        match ch {
+                            None => break,
+                            Some(' ' | '\n' | '\t' | '\r' | '"' | '[' | ']') => {
+                                self.unget_char();
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    return Some(Token {
+                        loc: start_loc,
+                        token: &self.contents[token_start..self.pos],
+                    });
                 }
             }
         }
@@ -198,18 +288,26 @@ impl<'a> Tokenizer<'a> {
 
     #[inline]
     fn get_char(&mut self) -> Option<char> {
-        let next = self.pos.next();
-        match next {
-            None => {}
-            Some(ch) => {
-                if ch == '\n' {
-                    self.loc.line += 1;
-                    self.loc.column = 0;
-                } else {
-                    self.loc.column += 1;
-                }
-            }
-        };
-        next
+        // let next = self.pos.next();
+        if self.pos == self.end {
+            return None;
+        }
+        let ch = self.contents[self.pos] as char;
+        self.pos += 1;
+        if ch == '\n' {
+            self.loc.line += 1;
+            self.loc.column = 0;
+        } else {
+            self.loc.column += 1;
+        }
+        Some(ch as char)
+    }
+
+    #[inline]
+    fn unget_char(&mut self) {
+        self.pos -= 1;
+        if self.contents[self.pos] == b'\n' {
+            self.loc.line -= 1;
+        }
     }
 }
