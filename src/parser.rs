@@ -1,4 +1,15 @@
-use crate::{paramdict::ParsedParameterVector, util::error::FileLoc, Float};
+use std::{cell::RefCell, fs::File, iter::Peekable, mem::replace, ptr::null, str::Chars};
+
+use dashmap::mapref::one::Ref;
+
+use crate::{
+    paramdict::ParsedParameterVector,
+    util::{
+        error::{error_exit, FileLoc},
+        file::read_file_contents,
+    },
+    Float,
+};
 
 pub trait ParserTarget {
     fn scale(&mut self, sx: Float, sy: Float, sz: Float, loc: FileLoc);
@@ -70,10 +81,135 @@ pub trait ParserTarget {
     // error_exit
 }
 
+#[derive(Default)]
+struct Token {
+    loc: FileLoc,
+    token: String,
+    // token: &'a str,
+}
+
+const TOKEN_OPTIONAL: i32 = 0;
+const TOKEN_REQUIRED: i32 = 1;
+
+fn parse(target: &mut dyn ParserTarget, t: Tokenizer) {
+    let mut file_stack: Vec<Tokenizer> = Vec::new();
+    file_stack.push(t);
+
+    let parse_error = |msg: &'static str, loc: &FileLoc| error_exit(Some(loc), &format!("{}", msg));
+
+    // let mut unget_token = Some(Token::default());
+
+    fn next_token(file_stack: &mut Vec<Tokenizer>, flags: i32) -> Option<Token> {
+        // if unget_token.is_some() {
+        //     return replace(&mut unget_token, None);
+        // }
+        if file_stack.is_empty() {
+            if flags & TOKEN_REQUIRED != 0 {
+                error_exit(None, &"premature end of file".to_string());
+            }
+            return None;
+        }
+        let tok = file_stack.last_mut().unwrap().next();
+        match tok {
+            None => {
+                println!(
+                    "Finished parsing {}",
+                    file_stack.last().unwrap().loc.filename
+                );
+                file_stack.pop();
+                return next_token(file_stack, flags);
+            }
+            Some(t) if t.token.starts_with("#") => next_token(file_stack, flags),
+            _ => tok,
+        }
+    }
+
+    loop {
+        let tok = next_token(&mut file_stack, TOKEN_OPTIONAL);
+        if tok.is_none() {
+            break;
+        }
+    }
+}
+
 pub fn parse_files(target: &mut dyn ParserTarget, filenames: Vec<String>) -> Result<(), &str> {
+    let tok_error = |msg: &'static str, loc: &FileLoc| error_exit(Some(loc), &format!("{}", msg));
     if filenames.is_empty() {
-        Err("No file description given.")
+        // TODO: stdin file description
+        return Err("No file description given.");
     } else {
-        Ok(())
+        for f in &filenames {
+            let contents = read_file_contents(f);
+            let t = Tokenizer::new(f, &contents, tok_error);
+            parse(target, t);
+        }
+    }
+    Ok(())
+}
+
+// pub struct Tokenizer {
+//     contents: String,
+//     // end: &char,
+//     // s_escaped
+// }
+
+struct Tokenizer<'a> {
+    contents: &'a String,
+    pos: Chars<'a>,
+    loc: FileLoc,
+    error_call_back: ErrorCallBack,
+}
+
+type ErrorCallBack = fn(&'static str, &FileLoc);
+
+const EOF: i32 = -1;
+
+impl<'a> Tokenizer<'a> {
+    pub fn new(filename: &String, contents: &'a String, error_call_back: ErrorCallBack) -> Self {
+        Self {
+            contents: contents,
+            loc: FileLoc::new(String::from(filename)),
+            error_call_back,
+            pos: contents.chars(),
+        }
+    }
+
+    // pub fn new(str: String, filename: &String, error_call_back: ErrorCallBack) -> Self {
+    //     Self {
+    //         loc: FileLoc::new(String::from(filename)),
+    //         contents: str,
+    //         error_call_back,
+    //         // pos: str.chars(),
+    //     }
+    // }
+
+    pub fn next(&mut self) -> Option<Token> {
+        loop {
+            let mut start_loc = self.loc.clone();
+            let ch = self.get_char();
+            match ch {
+                None => return None,
+                _ => {
+                    print!("{}", ch.unwrap());
+                }
+            }
+        }
+    }
+
+    #[inline]
+    fn get_char(&mut self) -> Option<char> {
+        let next = self.pos.next();
+        match next {
+            None => {}
+            Some(ch) => {
+                if ch == '\n' {
+                    self.loc.line += 1;
+                    self.loc.column = 0;
+                } else {
+                    self.loc.column += 1;
+                }
+            }
+        };
+        next
     }
 }
