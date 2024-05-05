@@ -29,16 +29,16 @@ enum BlockState {
     WorldBlock,
 }
 
-pub struct BasicSceneBuilder {
+pub struct BasicSceneBuilder<'a> {
     scene: Rc<BasicScene>,
     current_block: BlockState,
     graphics_state: GraphicsState,
     // render_from_world: Transform,
     // transform_cache: InternCache<Transform>,
-    sampler: SceneEntity,
+    sampler: SceneEntity<'a>,
 }
 
-impl BasicSceneBuilder {
+impl<'a> BasicSceneBuilder<'a> {
     pub fn new(scene: Rc<BasicScene>) -> Self {
         let mut sampler = SceneEntity::default();
         sampler.name = InternedString(INTERNED_STRINGS.lookup(&String::from("zsobol")));
@@ -65,7 +65,7 @@ impl BasicSceneBuilder {
     }
 }
 
-impl ParserTarget for BasicSceneBuilder {
+impl<'a> ParserTarget for BasicSceneBuilder<'a> {
     fn reverse_orientation(&mut self, loc: FileLoc) {
         self.verify_world("RerverseOrientation");
         self.graphics_state.reverse_orientation = !self.graphics_state.reverse_orientation;
@@ -78,9 +78,9 @@ impl ParserTarget for BasicSceneBuilder {
     fn identity(&mut self, loc: FileLoc) {}
 
     fn sampler(&mut self, name: &String, params: ParsedParameterVector, loc: FileLoc) {
-        let dict = ParameterDictionary::new(params, self.graphics_state.color_space);
-        self.verify_options("Sampler");
-        self.sampler = SceneEntity::new(name, dict, loc);
+        // let dict = ParameterDictionary::new(params, self.graphics_state.color_space);
+        // self.verify_options("Sampler");
+        // self.sampler = SceneEntity::new(name, dict, loc);
     }
 
     fn scale(&mut self, sx: crate::Float, sy: crate::Float, sz: crate::Float, loc: FileLoc) {
@@ -174,8 +174,10 @@ impl ParserTarget for BasicSceneBuilder {
         todo!()
     }
 
-    fn camera(&mut self, name: &String, params: ParsedParameterVector, loc: FileLoc) {
-        todo!()
+    fn camera(&mut self, name: &str, params: ParsedParameterVector, loc: FileLoc) {
+        for p in params {
+            println!("{},{},{}", p.name, p.type_name, p.floats[0]);
+        }
     }
 
     fn make_named_medium(&mut self, name: &String, params: ParsedParameterVector, loc: FileLoc) {
@@ -191,14 +193,16 @@ impl ParserTarget for BasicSceneBuilder {
     }
 
     fn attribute_begin(&mut self, loc: FileLoc) {
+        self.verify_world("AttributeBegin");
         todo!()
+        // self.pushed_graphics_states.push_back(self.graphics_state);
     }
 
     fn attribute_end(&mut self, loc: FileLoc) {
         todo!()
     }
 
-    fn attribute(&mut self, target: &String, params: ParsedParameterVector, loc: FileLoc) {
+    fn attribute(&mut self, target: &str, params: ParsedParameterVector, loc: FileLoc) {
         todo!()
     }
 
@@ -251,18 +255,18 @@ impl ParserTarget for BasicSceneBuilder {
 }
 
 #[derive(Default)]
-struct SceneEntity {
+struct SceneEntity<'a> {
     name: InternedString,
     loc: FileLoc,
-    parameters: ParameterDictionary,
+    parameters: ParameterDictionary<'a>,
 }
 
-impl SceneEntity {
-    pub fn new(name: &String, parameters: ParameterDictionary, loc: FileLoc) -> Self {
+impl<'a> SceneEntity<'a> {
+    pub fn new(name: &String, parameters: ParameterDictionary<'a>, loc: FileLoc) -> Self {
         Self {
             name: InternedString(INTERNED_STRINGS.lookup(name)),
-            parameters: parameters,
-            loc: loc,
+            parameters,
+            loc,
         }
     }
 }

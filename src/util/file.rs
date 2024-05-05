@@ -1,6 +1,6 @@
 use std::fs;
 
-pub fn read_file_contents(filename: &String) -> String {
+pub fn read_file_contents(filename: &String) -> Vec<u8> {
     // TODO: error_exit
-    fs::read_to_string(filename).unwrap()
+    fs::read(filename).unwrap()
 }

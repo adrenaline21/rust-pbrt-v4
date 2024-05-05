@@ -7,8 +7,6 @@ use dashmap::DashSet;
 
 pub struct InternCache<T>(DashSet<Arc<T>>);
 
-type Create<T> = fn(T) -> T;
-
 impl<T: Eq + Hash + Clone> InternCache<T> {
     pub fn new() -> Self {
         Self(DashSet::with_capacity(256))

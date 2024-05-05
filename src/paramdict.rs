@@ -1,22 +1,35 @@
-use std::ptr::null;
-
 use crate::util::colorspace::RGBColorSpace;
 use crate::util::spectrum::Spectrum;
 use crate::util::vecmath::{Point2f, Point3f, Tuple2, Tuple3, Vector3f};
 use crate::{util::error::FileLoc, Float};
 
-pub struct ParsedParameter {
-    type_name: String,
-    name: String,
-    loc: FileLoc,
-    floats: Vec<Float>,
-    ints: Vec<i32>,
-    strings: Vec<String>,
-    bools: Vec<u8>,
+pub struct ParsedParameter<'a> {
+    pub type_name: &'a str,
+    pub name: &'a str,
+    pub loc: FileLoc,
+    pub floats: Vec<Float>,
+    pub ints: Vec<i32>,
+    pub strings: Vec<String>,
+    pub bools: Vec<u8>,
     looked_up: bool,
 }
 
-pub type ParsedParameterVector = Vec<ParsedParameter>;
+impl<'a> ParsedParameter<'a> {
+    pub fn new() -> Self {
+        Self {
+            type_name: "",
+            name: "",
+            loc: FileLoc::default(),
+            floats: Vec::new(),
+            ints: Vec::new(),
+            strings: Vec::new(),
+            bools: Vec::new(),
+            looked_up: false,
+        }
+    }
+}
+
+pub type ParsedParameterVector<'a> = Vec<ParsedParameter<'a>>;
 
 enum SpectrumType {
     Illuminant,
@@ -28,7 +41,7 @@ pub trait ParameterTypeTraits {
     const TYPE_NAME: &'static str;
     const N_PER_ITEM: usize;
     type ValueType;
-    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
+    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
     where
         Self: Sized;
     fn convert(v: &[Self::ValueType]) -> Self;
@@ -38,7 +51,7 @@ impl ParameterTypeTraits for bool {
     const TYPE_NAME: &'static str = "bool";
     const N_PER_ITEM: usize = 1;
     type ValueType = u8;
-    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
+    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
     where
         Self: Sized,
     {
@@ -60,7 +73,7 @@ impl ParameterTypeTraits for Float {
 
     type ValueType = Float;
 
-    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
+    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
     where
         Self: Sized,
     {
@@ -79,7 +92,7 @@ impl ParameterTypeTraits for i32 {
 
     type ValueType = i32;
 
-    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
+    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
     where
         Self: Sized,
     {
@@ -98,7 +111,7 @@ impl ParameterTypeTraits for Point2f {
 
     type ValueType = Float;
 
-    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
+    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
     where
         Self: Sized,
     {
@@ -117,7 +130,7 @@ impl ParameterTypeTraits for Point3f {
 
     type ValueType = Float;
 
-    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
+    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
     where
         Self: Sized,
     {
@@ -136,7 +149,7 @@ impl ParameterTypeTraits for Vector3f {
 
     type ValueType = Float;
 
-    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
+    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
     where
         Self: Sized,
     {
@@ -155,7 +168,7 @@ impl ParameterTypeTraits for String {
 
     type ValueType = String;
 
-    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
+    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
     where
         Self: Sized,
     {
@@ -167,14 +180,17 @@ impl ParameterTypeTraits for String {
     }
 }
 
-pub struct ParameterDictionary {
-    params: ParsedParameterVector,
+pub struct ParameterDictionary<'a> {
+    params: ParsedParameterVector<'a>,
     color_space: Option<&'static RGBColorSpace>,
 }
 
-impl Default for ParameterDictionary {
+impl<'a> Default for ParameterDictionary<'a> {
     fn default() -> Self {
-        Self { params: Default::default(), color_space: None }
+        Self {
+            params: Default::default(),
+            color_space: None,
+        }
     }
 }
 
@@ -198,30 +214,30 @@ pub fn return_array<R, V>(
     v
 }
 
-impl ParameterDictionary {
-    pub fn new(params: ParsedParameterVector, color_space: &'static RGBColorSpace) -> Self {
+impl<'a> ParameterDictionary<'a> {
+    pub fn new(params: ParsedParameterVector<'a>, color_space: &'static RGBColorSpace) -> Self {
         Self {
             params: params,
             color_space: Some(color_space),
         }
     }
 
-    fn get_one_float(&self, name: &String, default: Float) -> Float {
+    fn get_one_float(&self, name: &str, default: Float) -> Float {
         self.lookup_single(name, default)
     }
-    fn get_one_int(&self, name: &String, default: i32) -> i32 {
+    fn get_one_int(&self, name: &str, default: i32) -> i32 {
         self.lookup_single(name, default)
     }
-    fn get_one_bool(&self, name: &String, default: bool) -> bool {
+    fn get_one_bool(&self, name: &str, default: bool) -> bool {
         self.lookup_single(name, default)
     }
-    fn get_one_point2f(&self, name: &String, default: Point2f) -> Point2f {
+    fn get_one_point2f(&self, name: &str, default: Point2f) -> Point2f {
         self.lookup_single(name, default)
     }
-    fn get_one_vector3f(&self, name: &String, default: Vector3f) -> Vector3f {
+    fn get_one_vector3f(&self, name: &str, default: Vector3f) -> Vector3f {
         self.lookup_single(name, default)
     }
-    fn get_one_string(&self, name: &String, default: String) -> String {
+    fn get_one_string(&self, name: &str, default: String) -> String {
         // TODO: default &String
         self.lookup_single(name, default)
     }
@@ -252,12 +268,12 @@ impl ParameterDictionary {
         vec![]
     }
 
-    fn lookup_single<T>(&self, name: &String, default: T) -> T
+    fn lookup_single<T>(&self, name: &str, default: T) -> T
     where
         T: ParameterTypeTraits,
     {
         for p in &self.params {
-            if p.name != *name || p.type_name != T::TYPE_NAME {
+            if p.name != name || p.type_name != T::TYPE_NAME {
                 continue;
             }
             let values = T::get_values(p);
