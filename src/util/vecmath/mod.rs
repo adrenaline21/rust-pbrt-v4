@@ -3,7 +3,7 @@ use crate::*;
 
 mod normal;
 mod point;
-mod vector;
+pub mod vector;
 
 pub type Vector3f = vector::Vector3<Float>;
 pub type Point3f = point::Point3<Float>;

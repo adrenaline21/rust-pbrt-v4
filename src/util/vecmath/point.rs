@@ -66,7 +66,21 @@ where
 }
 
 super::tuple3_binary!(Point3, Add, add);
-super::tuple3_binary!(Point3, Sub, sub);
+// super::tuple3_binary!(Point3, Sub, sub)
+impl<T, U, V> Sub<Point3<U>> for Point3<T>
+where
+    T: Sub<U, Output = V>,
+    U: Num,
+    V: Num,
+{
+    type Output = Vector3<V>;
+    #[inline]
+    fn sub(self, rhs: Point3<U>) -> Self::Output {
+        debug_assert!(!rhs.has_nan());
+        Self::Output::new(self.x.sub(rhs.x), self.y.sub(rhs.y), self.z.sub(rhs.z))
+    }
+}
+
 super::scalar_binary!(Point3, Mul, mul);
 super::scalar_binary!(Point3, Div, div);
 

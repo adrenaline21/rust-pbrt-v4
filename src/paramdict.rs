@@ -1,11 +1,15 @@
+use std::sync::Arc;
+
+use crate::scene::INTERNED_STRINGS;
 use crate::util::colorspace::RGBColorSpace;
 use crate::util::spectrum::Spectrum;
+use crate::util::string::InternedString;
 use crate::util::vecmath::{Point2f, Point3f, Tuple2, Tuple3, Vector3f};
 use crate::{util::error::FileLoc, Float};
 
-pub struct ParsedParameter<'a> {
-    pub type_name: &'a str,
-    pub name: &'a str,
+pub struct ParsedParameter {
+    pub type_name: InternedString,
+    pub name: InternedString,
     pub loc: FileLoc,
     pub floats: Vec<Float>,
     pub ints: Vec<i32>,
@@ -14,11 +18,11 @@ pub struct ParsedParameter<'a> {
     looked_up: bool,
 }
 
-impl<'a> ParsedParameter<'a> {
+impl ParsedParameter {
     pub fn new() -> Self {
         Self {
-            type_name: "",
-            name: "",
+            type_name: INTERNED_STRINGS.lookup(&String::from("")),
+            name: INTERNED_STRINGS.lookup(&String::from("")),
             loc: FileLoc::default(),
             floats: Vec::new(),
             ints: Vec::new(),
@@ -29,7 +33,7 @@ impl<'a> ParsedParameter<'a> {
     }
 }
 
-pub type ParsedParameterVector<'a> = Vec<ParsedParameter<'a>>;
+pub type ParsedParameterVector = Vec<ParsedParameter>;
 
 enum SpectrumType {
     Illuminant,
@@ -41,7 +45,7 @@ pub trait ParameterTypeTraits {
     const TYPE_NAME: &'static str;
     const N_PER_ITEM: usize;
     type ValueType;
-    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
+    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
     where
         Self: Sized;
     fn convert(v: &[Self::ValueType]) -> Self;
@@ -51,7 +55,7 @@ impl ParameterTypeTraits for bool {
     const TYPE_NAME: &'static str = "bool";
     const N_PER_ITEM: usize = 1;
     type ValueType = u8;
-    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
+    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
     where
         Self: Sized,
     {
@@ -73,7 +77,7 @@ impl ParameterTypeTraits for Float {
 
     type ValueType = Float;
 
-    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
+    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
     where
         Self: Sized,
     {
@@ -92,7 +96,7 @@ impl ParameterTypeTraits for i32 {
 
     type ValueType = i32;
 
-    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
+    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
     where
         Self: Sized,
     {
@@ -111,7 +115,7 @@ impl ParameterTypeTraits for Point2f {
 
     type ValueType = Float;
 
-    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
+    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
     where
         Self: Sized,
     {
@@ -130,7 +134,7 @@ impl ParameterTypeTraits for Point3f {
 
     type ValueType = Float;
 
-    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
+    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
     where
         Self: Sized,
     {
@@ -149,7 +153,7 @@ impl ParameterTypeTraits for Vector3f {
 
     type ValueType = Float;
 
-    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
+    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
     where
         Self: Sized,
     {
@@ -168,7 +172,7 @@ impl ParameterTypeTraits for String {
 
     type ValueType = String;
 
-    fn get_values<'a>(param: &'a ParsedParameter<'a>) -> &'a [Self::ValueType]
+    fn get_values(param: &ParsedParameter) -> &[Self::ValueType]
     where
         Self: Sized,
     {
@@ -180,12 +184,12 @@ impl ParameterTypeTraits for String {
     }
 }
 
-pub struct ParameterDictionary<'a> {
-    params: ParsedParameterVector<'a>,
+pub struct ParameterDictionary {
+    params: ParsedParameterVector,
     color_space: Option<&'static RGBColorSpace>,
 }
 
-impl<'a> Default for ParameterDictionary<'a> {
+impl Default for ParameterDictionary {
     fn default() -> Self {
         Self {
             params: Default::default(),
@@ -214,8 +218,8 @@ pub fn return_array<R, V>(
     v
 }
 
-impl<'a> ParameterDictionary<'a> {
-    pub fn new(params: ParsedParameterVector<'a>, color_space: &'static RGBColorSpace) -> Self {
+impl ParameterDictionary {
+    pub fn new(params: ParsedParameterVector, color_space: &'static RGBColorSpace) -> Self {
         Self {
             params: params,
             color_space: Some(color_space),
@@ -243,25 +247,25 @@ impl<'a> ParameterDictionary<'a> {
     }
     fn get_one_spectrum<T: Spectrum>(
         &self,
-        name: &String,
+        name: &str,
         default: T,
         spectrum_type: SpectrumType,
     ) -> T {
         for p in &self.params {
-            if p.name != *name {
+            if *p.name != name {
                 continue;
             }
         }
         default
     }
 
-    fn get_float_array(&self, name: &String) -> Vec<Float> {
+    fn get_float_array(&self, name: &str) -> Vec<Float> {
         self.lookup_array::<Float>(name)
     }
 
-    fn lookup_array<T: ParameterTypeTraits>(&self, name: &String) -> Vec<T> {
+    fn lookup_array<T: ParameterTypeTraits>(&self, name: &str) -> Vec<T> {
         for p in &self.params {
-            if p.name == *name && p.type_name == T::TYPE_NAME {
+            if *p.name == name && *p.type_name == T::TYPE_NAME {
                 return return_array(T::get_values(p), p, T::N_PER_ITEM, T::convert);
             }
         }
@@ -273,7 +277,7 @@ impl<'a> ParameterDictionary<'a> {
         T: ParameterTypeTraits,
     {
         for p in &self.params {
-            if p.name != name || p.type_name != T::TYPE_NAME {
+            if *p.name != name && *p.type_name != T::TYPE_NAME {
                 continue;
             }
             let values = T::get_values(p);
@@ -293,10 +297,10 @@ impl<'a> ParameterDictionary<'a> {
         param: &ParsedParameter,
         spectrum_type: SpectrumType,
     ) -> &[T] {
-        if param.type_name == "rgb" {
-        } else if param.type_name == "blackbody" {
-        } else if param.type_name == "spectrum" && !param.floats.is_empty() {
-        } else if param.type_name == "spectrum" && !param.strings.is_empty() {
+        if *param.type_name == "rgb" {
+        } else if *param.type_name == "blackbody" {
+        } else if *param.type_name == "spectrum" && !param.floats.is_empty() {
+        } else if *param.type_name == "spectrum" && !param.strings.is_empty() {
         }
         &[]
     }

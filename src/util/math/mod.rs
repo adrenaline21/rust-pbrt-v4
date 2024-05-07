@@ -12,5 +12,6 @@ pub fn fma(x: Float, y: Float, z: Float) -> Float {
     x.mul_add(y, z)
 }
 
-mod compensated_float;
+pub mod compensated_float;
 mod interval;
+pub mod square_matrix;

@@ -7,4 +7,5 @@ mod math;
 pub mod print;
 pub mod spectrum;
 pub mod string;
+pub mod transform;
 pub mod vecmath;

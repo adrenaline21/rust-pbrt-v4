@@ -1,5 +1,7 @@
 use crate::Float;
 
+use super::math::fma;
+
 pub trait Num: Copy {
     fn is_nan(&self) -> bool;
     fn abs(self) -> Self;
@@ -7,6 +9,9 @@ pub trait Num: Copy {
     fn floor(self) -> Self;
     fn min(self, other: Self) -> Self;
     fn max(self, other: Self) -> Self;
+    fn sqr(self) -> Self;
+    fn sqrt(self) -> Float;
+    fn difference_of_products(a: Self, b: Self, c: Self, d: Self) -> Self;
 }
 
 impl Num for Float {
@@ -33,5 +38,23 @@ impl Num for Float {
     #[inline]
     fn max(self, other: Self) -> Self {
         <Float>::max(self, other)
+    }
+
+    #[inline]
+    fn sqr(self) -> Self {
+        self * self
+    }
+
+    #[inline]
+    fn sqrt(self) -> Float {
+        <Float>::sqrt(self)
+    }
+
+    #[inline]
+    fn difference_of_products(a: Self, b: Self, c: Self, d: Self) -> Self {
+        let cd = c * d;
+        let sum_of_products = fma(a, b, cd);
+        let error = fma(c, d, -cd);
+        sum_of_products + error
     }
 }

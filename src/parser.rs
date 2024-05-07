@@ -2,6 +2,7 @@ use std::mem::replace;
 
 use crate::{
     paramdict::{ParsedParameter, ParsedParameterVector},
+    scene::INTERNED_STRINGS,
     util::{
         error::{error_exit, FileLoc},
         file::read_file_contents,
@@ -46,7 +47,7 @@ pub trait ParserTarget {
     fn film(&mut self, name: &String, params: ParsedParameterVector, loc: FileLoc);
     fn accelerator(&mut self, name: &String, params: ParsedParameterVector, loc: FileLoc);
     fn integrator(&mut self, name: &String, params: ParsedParameterVector, loc: FileLoc);
-    fn camera(&mut self, name: &str, params: ParsedParameterVector, loc: FileLoc);
+    fn camera(&mut self, name: &String, params: ParsedParameterVector, loc: FileLoc);
     fn make_named_medium(&mut self, name: &String, params: ParsedParameterVector, loc: FileLoc);
     fn medium_interface(&mut self, inside_name: &String, outside_name: &String, loc: FileLoc);
     fn sampler(&mut self, name: &String, params: ParsedParameterVector, loc: FileLoc);
@@ -85,7 +86,7 @@ struct Token<'a> {
     token: &'a [u8],
 }
 
-impl<'a> ParsedParameter<'a> {
+impl ParsedParameter {
     fn add_float(&mut self, v: Float) {
         assert!(self.ints.is_empty() && self.strings.is_empty() && self.bools.is_empty());
         self.floats.push(v);
@@ -96,7 +97,7 @@ impl<'a> ParsedParameter<'a> {
         self.ints.push(i);
     }
 
-    fn add_string(&mut self, s: &str) {
+    fn add_string(&mut self, s: String) {
         assert!(self.floats.is_empty() && self.strings.is_empty() && self.strings.is_empty());
         self.strings.push(s.to_string());
     }
@@ -107,33 +108,33 @@ impl<'a> ParsedParameter<'a> {
     }
 }
 
-fn parse_int(t: Token) -> i32 {
-    let negate = t.token[0] == b'-';
-    let mut index = 0;
-    if t.token[0] == b'-' || t.token[0] == b'+' {
-        index += 1;
-    }
-    let mut value: i32 = 0;
-    while index < t.token.len() {
-        let n = t.token[index] as i32 - 48;
-        if !(n >= 0 && n <= 9) {
-            error_exit(Some(&t.loc), &format!("\"{}\": expected a number", n));
-        }
-        value = 10 * value + n;
-    }
-    if negate {
-        -value
-    } else {
-        value
-    }
-}
+// fn parse_int(t: Token) -> i32 {
+//     let negate = t.token[0] == b'-';
+//     let mut index = 0;
+//     if t.token[0] == b'-' || t.token[0] == b'+' {
+//         index += 1;
+//     }
+//     let mut value: i32 = 0;
+//     while index < t.token.len() {
+//         let n = t.token[index] as i32 - 48;
+//         if !(n >= 0 && n <= 9) {
+//             error_exit(Some(&t.loc), &format!("\"{}\": expected a number", n));
+//         }
+//         value = 10 * value + n;
+//     }
+//     if negate {
+//         -value
+//     } else {
+//         value
+//     }
+// }
 
 #[inline]
 fn is_quoted_string(str: &[u8]) -> bool {
     str.len() >= 2 && str[0] == b'"' && str[str.len() - 1] == b'"'
 }
 
-fn dequote_string<'a>(t: &Token<'a>) -> &'a [u8] {
+fn dequote_string(t: &Token) -> String {
     if !is_quoted_string(t.token) {
         error_exit(
             Some(&t.loc),
@@ -143,7 +144,7 @@ fn dequote_string<'a>(t: &Token<'a>) -> &'a [u8] {
             ),
         );
     }
-    &t.token[1..t.token.len() - 1]
+    String::from_utf8(t.token[1..t.token.len() - 1].to_vec()).unwrap()
 }
 
 const TOKEN_OPTIONAL: i32 = 0;
@@ -158,7 +159,7 @@ fn unget<'a>(unget_token: &mut Option<Token<'a>>, t: Token<'a>) {
 fn parse_parameters<'a>(
     file_stack: &mut Vec<Tokenizer<'a>>,
     unget_token: &mut Option<Token<'a>>,
-) -> ParsedParameterVector<'a> {
+) -> ParsedParameterVector {
     let parse_error = |msg: &str, loc: &FileLoc| error_exit(Some(loc), &format!("{}", msg));
     let mut parameter_vector = ParsedParameterVector::new();
     let error_call_back = |t: &Token, msg: &str| {
@@ -180,11 +181,12 @@ fn parse_parameters<'a>(
         }
 
         let mut param = ParsedParameter::new();
-        let mut decl = std::str::from_utf8(dequote_string(&t))
-            .unwrap()
-            .split_whitespace();
-        param.type_name = decl.next().unwrap();
-        param.name = decl.next().unwrap();
+        let decl = dequote_string(&t);
+        let mut iter = decl.split_whitespace();
+        param.type_name = INTERNED_STRINGS.lookup(&iter.next().unwrap().to_string());
+        param.name = INTERNED_STRINGS.lookup(&iter.next().unwrap().to_string());
+
+        // println!("{},{}", param.type_name, param.name);
 
         #[derive(PartialEq)]
         enum ValType {
@@ -196,7 +198,7 @@ fn parse_parameters<'a>(
         }
 
         let mut val_type = ValType::Unknown;
-        if param.type_name == "integer" {
+        if *param.type_name == "integer" {
             val_type = ValType::Int;
         }
 
@@ -211,7 +213,7 @@ fn parse_parameters<'a>(
                     ValType::Int => error_call_back(&t, "expected integer value"),
                     ValType::Bool => error_call_back(&t, "expected Boolean value"),
                 }
-                param.add_string(std::str::from_utf8(dequote_string(&t)).unwrap());
+                param.add_string(dequote_string(&t));
             } else if t.token[0] == b't' && t.token == b"true" {
                 match val_type {
                     ValType::Unknown => val_type = ValType::Bool,
@@ -240,7 +242,12 @@ fn parse_parameters<'a>(
                 }
 
                 if val_type == ValType::Int {
-                    param.add_int(parse_int(t));
+                    param.add_int(
+                        std::str::from_utf8(t.token)
+                            .unwrap()
+                            .parse::<i32>()
+                            .unwrap(),
+                    );
                 } else {
                     param.add_float(
                         std::str::from_utf8(t.token)
@@ -269,6 +276,16 @@ fn parse_parameters<'a>(
     }
 }
 
+fn basic_param_list_entrypoint<'a>(
+    file_stack: &mut Vec<Tokenizer<'a>>,
+    unget_token: &mut Option<Token<'a>>,
+) -> (String, ParsedParameterVector) {
+    let t = next_token(file_stack, unget_token, TOKEN_REQUIRED).unwrap();
+    let dequoted = dequote_string(&t);
+    let parameter_vector = parse_parameters(file_stack, unget_token);
+    (dequoted, parameter_vector)
+}
+
 fn next_token<'a>(
     file_stack: &mut Vec<Tokenizer<'a>>,
     unget_token: &mut Option<Token<'a>>,
@@ -283,7 +300,7 @@ fn next_token<'a>(
         }
         return None;
     }
-    let tok = file_stack.last_mut().unwrap().next();
+    let tok: Option<Token> = file_stack.last_mut().unwrap().next();
     match tok {
         None => {
             println!(
@@ -296,19 +313,6 @@ fn next_token<'a>(
         // Some(t) if t.token.starts_with("#") => next_token(file_stack, flags),
         _ => tok,
     }
-}
-
-fn basic_param_list_entrypoint<'a>(
-    file_stack: &mut Vec<Tokenizer<'a>>,
-    unget_token: &mut Option<Token<'a>>,
-) -> (String, ParsedParameterVector<'a>) {
-    let t = next_token(file_stack, unget_token, TOKEN_REQUIRED).unwrap();
-    let dequoted = dequote_string(&t);
-    let parameter_vector = parse_parameters(file_stack, unget_token);
-    (
-        String::from_utf8(dequoted.to_vec()).unwrap(),
-        parameter_vector,
-    )
 }
 
 fn parse(target: &mut dyn ParserTarget, t: Tokenizer) {
@@ -344,12 +348,45 @@ fn parse(target: &mut dyn ParserTarget, t: Tokenizer) {
                 let (name, params) = basic_param_list_entrypoint(&mut file_stack, &mut unget_token);
                 target.camera(&name, params, loc);
             }
+            "Film" => {
+                let (name, params) = basic_param_list_entrypoint(&mut file_stack, &mut unget_token);
+                target.film(&name, params, loc);
+            }
+            "Integrator" => {
+                let (name, params) = basic_param_list_entrypoint(&mut file_stack, &mut unget_token);
+                target.integrator(&name, params, loc);
+            }
+            "LookAt" => {
+                let mut v = [0 as Float; 9];
+                for i in 0..9 {
+                    v[i] = std::str::from_utf8(
+                        next_token(&mut file_stack, &mut unget_token, TOKEN_REQUIRED)
+                            .unwrap()
+                            .token,
+                    )
+                    .unwrap()
+                    .parse::<Float>()
+                    .unwrap();
+                }
+                target.look_at(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], loc);
+            }
+            "PixelFilter" => {
+                let (name, params) = basic_param_list_entrypoint(&mut file_stack, &mut unget_token);
+                target.pixel_filter(&name, params, loc);
+            }
+            "Sampler" => {
+                let (name, params) = basic_param_list_entrypoint(&mut file_stack, &mut unget_token);
+                target.sampler(&name, params, loc);
+            }
             _ => {}
         }
     }
 }
 
-pub fn parse_files(target: &mut dyn ParserTarget, filenames: Vec<String>) -> Result<(), &str> {
+pub fn parse_files(
+    target: &mut dyn ParserTarget,
+    filenames: Vec<String>,
+) -> Result<(), &'static str> {
     let tok_error = |msg: &'static str, loc: &FileLoc| error_exit(Some(loc), &format!("{}", msg));
     if filenames.is_empty() {
         // TODO: stdin file description
@@ -361,6 +398,9 @@ pub fn parse_files(target: &mut dyn ParserTarget, filenames: Vec<String>) -> Res
             parse(target, t);
         }
     }
+
+    println!("{:?}", INTERNED_STRINGS);
+
     Ok(())
 }
 
@@ -371,8 +411,8 @@ pub fn parse_files(target: &mut dyn ParserTarget, filenames: Vec<String>) -> Res
 // }
 
 struct Tokenizer<'a> {
-    contents: &'a [u8],
-    // pos: Peekable<CharIndices<'a>>,
+    contents: &'a Vec<u8>,
+    // pos: Peekable<CharIndices>,
     pos: usize,
     end: usize,
     loc: FileLoc,
@@ -382,7 +422,7 @@ struct Tokenizer<'a> {
 type ErrorCallBack = fn(&'static str, &FileLoc);
 
 impl<'a> Tokenizer<'a> {
-    pub fn new(filename: &String, contents: &'a [u8], error_call_back: ErrorCallBack) -> Self {
+    pub fn new(filename: &String, contents: &'a Vec<u8>, error_call_back: ErrorCallBack) -> Self {
         Self {
             contents: contents,
             loc: FileLoc::new(String::from(filename)),
